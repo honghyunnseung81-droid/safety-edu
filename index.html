@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>안전교육</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="안전교육">
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; font-family: system-ui, sans-serif; }
+  #app { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+  #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #fff; transition: opacity .3s; }
+  #splash img { width: 160px; }
+  #splash p { color: #5b6270; margin: 0; font-size: 17px; text-align: center; padding: 0 24px; }
+</style>
+</head>
+<body>
+<div id="splash"><img src="logo.png" alt=""><p id="splash-msg">안전교육을 여는 중…</p></div>
+<script>
+/* ▼ 직원용 웹앱 주소 (Apps Script "배포 → 웹 앱" 주소). 계정을 옮기면 이 한 줄만 바꾸면 됩니다. */
+var APP_URL = '';
+
+/* 웹앱 안쪽 화면이 로그인 표·언어를 이 페이지(홈 화면 아이콘 쪽)에 맡겨 둡니다. */
+var APP_ORIGIN = /^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/;
+var KEYS = ['token', 'lang', 'a2hs'];
+function ls(op, k, v) {
+  try {
+    if (op === 'get') return localStorage.getItem('kern_' + k);
+    if (op === 'set') return localStorage.setItem('kern_' + k, v);
+    return localStorage.removeItem('kern_' + k);
+  } catch (e) { return null; }
+}
+window.addEventListener('message', function (ev) {
+  if (!APP_ORIGIN.test(ev.origin) || !ev.data || !ev.source) return;
+  var m = ev.data;
+  if (m.kern === 'get') {
+    var data = {};
+    KEYS.forEach(function (k) { var v = ls('get', k); if (v) data[k] = v; });
+    var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    ev.source.postMessage({ kern: 'data', data: data, standalone: standalone }, ev.origin);
+    document.getElementById('splash').style.opacity = 0;
+    setTimeout(function () { document.getElementById('splash').style.display = 'none'; }, 300);
+  } else if (m.kern === 'set' && KEYS.indexOf(m.key) >= 0) {
+    ls('set', m.key, String(m.value));
+  } else if (m.kern === 'del' && KEYS.indexOf(m.key) >= 0) {
+    ls('del', m.key);
+  }
+});
+
+if (!APP_URL) {
+  document.getElementById('splash-msg').textContent = '아직 준비 중입니다. 안전관리자에게 문의하세요.';
+} else {
+  var f = document.createElement('iframe');
+  f.id = 'app'; f.src = APP_URL; f.allow = 'fullscreen; autoplay; encrypted-media';
+  f.setAttribute('allowfullscreen', '');
+  document.body.insertBefore(f, document.body.firstChild);
+  // 웹앱이 응답 없이 오래 걸리면 안내
+  setTimeout(function () {
+    var s = document.getElementById('splash');
+    if (s.style.display !== 'none') document.getElementById('splash-msg').textContent = '연결이 느립니다. 잠시만 기다리거나 인터넷 연결을 확인하세요.';
+  }, 15000);
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+</script>
+</body>
+</html>
