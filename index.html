@@ -17,10 +17,27 @@
   #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #fff; transition: opacity .3s; }
   #splash img { width: 160px; }
   #splash p { color: #5b6270; margin: 0; font-size: 17px; text-align: center; padding: 0 24px; }
+  /* 카톡·네이버 등 앱 안 브라우저 안내 (그림 없이 큰 글씨) */
+  #inapp { position: fixed; inset: 0; background: #fff; display: none; flex-direction: column; justify-content: center; padding: 28px 22px; z-index: 10; }
+  #inapp h1 { font-size: 26px; line-height: 1.4; margin: 0 0 18px; color: #1a1a1a; }
+  #inapp .step { font-size: 24px; line-height: 1.5; font-weight: 700; color: #d71920; margin: 0 0 18px; }
+  #inapp p { font-size: 18px; line-height: 1.6; color: #333; margin: 0 0 14px; }
+  #inapp .my { font-size: 16px; color: #5b6270; }
+  #inapp button { font: inherit; font-size: 20px; font-weight: 700; border: 0; border-radius: 12px; min-height: 58px; margin: 8px 0; }
+  #inapp .go { background: #d71920; color: #fff; }
+  #inapp .stay { background: none; color: #5b6270; text-decoration: underline; font-size: 16px; font-weight: 400; min-height: 44px; }
 </style>
 </head>
 <body>
 <div id="splash"><img src="logo.png" alt=""><p id="splash-msg">안전교육을 여는 중…</p></div>
+<div id="inapp">
+  <h1 id="ia-title">이 화면에서는 홈 화면에 추가할 수 없어요</h1>
+  <div class="step" id="ia-step"></div>
+  <p id="ia-why">휴대폰 기본 브라우저로 열어야 홈 화면 아이콘을 만들 수 있습니다.</p>
+  <p class="my" id="ia-my"></p>
+  <button class="go" id="ia-go" style="display:none"></button>
+  <button class="stay" id="ia-stay">그래도 여기서 계속 보기</button>
+</div>
 <script>
 /* ▼ 직원용 웹앱 주소 (Apps Script "배포 → 웹 앱" 주소). 계정을 옮기면 이 한 줄만 바꾸면 됩니다. */
 var APP_URL = 'https://script.google.com/macros/s/AKfycbwvtwd4YRjoIOTvfhJR-ZTV9-vJWeaFPJzvKyTc-hGuEPjDvIWlnopUKZz-1JSxAS7l/exec';
@@ -48,14 +65,21 @@ function ls(op, k, v) {
     try { history.replaceState(null, '', location.pathname + '?k=' + ls('get', 'k')); } catch (e) {}
   }
 })();
+/* 홈 화면 설치(안드로이드 크롬): 설치 창은 이 페이지에서만 띄울 수 있어서, 웹앱의 [홈 화면에 추가] 버튼과 메시지로 연결 */
+var installEvt = null, appWin = null, appOrigin = '';
+function tellApp(msg) { if (appWin) try { appWin.postMessage(msg, appOrigin); } catch (e) {} }
+window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installEvt = e; tellApp({ kern: 'installable' }); });
+window.addEventListener('appinstalled', function () { installEvt = null; tellApp({ kern: 'installed' }); });
+
 window.addEventListener('message', function (ev) {
   if (!APP_ORIGIN.test(ev.origin) || !ev.data || !ev.source) return;
   var m = ev.data;
   if (m.kern === 'get') {
+    appWin = ev.source; appOrigin = ev.origin;
     var data = {};
     KEYS.forEach(function (k) { var v = ls('get', k); if (v) data[k] = v; });
     var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-    ev.source.postMessage({ kern: 'data', data: data, standalone: standalone }, ev.origin);
+    ev.source.postMessage({ kern: 'data', data: data, standalone: standalone, installable: !!installEvt, inApp: inAppKind(navigator.userAgent) }, ev.origin);
     document.getElementById('splash').style.opacity = 0;
     setTimeout(function () { document.getElementById('splash').style.display = 'none'; }, 300);
   } else if (m.kern === 'set' && KEYS.indexOf(m.key) >= 0) {
@@ -63,12 +87,64 @@ window.addEventListener('message', function (ev) {
   } else if (m.kern === 'del' && KEYS.indexOf(m.key) >= 0) {
     ls('del', m.key);
     if (m.key === 'k') { try { history.replaceState(null, '', location.pathname); } catch (e) {} } // 무효가 된 QR 주소 지우기
+  } else if (m.kern === 'install') {
+    if (!installEvt) { tellApp({ kern: 'installResult', outcome: 'unavailable' }); return; }
+    var evt = installEvt; installEvt = null;
+    evt.prompt();
+    evt.userChoice.then(function (c) { tellApp({ kern: 'installResult', outcome: c.outcome }); }, function () { tellApp({ kern: 'installResult', outcome: 'unavailable' }); });
   }
 });
 
-if (!APP_URL) {
-  document.getElementById('splash-msg').textContent = '아직 준비 중입니다. 안전관리자에게 문의하세요.';
-} else {
+/* ── 앱 안 브라우저(카카오톡·네이버·밴드 등) ──
+   이런 화면에는 "홈 화면에 추가" 메뉴가 없고, 여기서 정한 로그인도 휴대폰 브라우저와 따로 저장됨.
+   카카오톡이면 카톡이 제공하는 "외부 브라우저로 열기" 주소로 자동 전환(개인코드 ?k= 그대로),
+   안 되거나 다른 앱이면 큰 글씨 안내. */
+function inAppKind(ua) {
+  ua = String(ua || '');
+  if (/KAKAOTALK/i.test(ua)) return 'kakao';
+  if (/NAVER\(inapp|NAVER\//i.test(ua)) return 'naver';
+  if (/\bBAND\//i.test(ua)) return 'band';
+  if (/Instagram|FBAN|FBAV|FB_IAB|\bLine\/|DaumApps|; wv\)/i.test(ua)) return 'other';
+  return '';
+}
+var UA = navigator.userAgent;
+var IS_IOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+var IS_ANDROID = /Android/i.test(UA);
+var go = window.kernGo || function (url) { location.href = url; }; // (검증할 때 kernGo로 바꿔 끼워 확인)
+var APP_NAME = { kakao: '카카오톡', naver: '네이버 앱', band: '밴드', other: '이 앱' };
+
+function showInAppGuide(kind) {
+  var name = APP_NAME[kind] || '이 앱';
+  document.getElementById('splash').style.display = 'none';
+  document.getElementById('ia-title').textContent = name + ' 안에서는 홈 화면에 추가할 수 없어요';
+  var step, my;
+  if (IS_IOS) {
+    step = '오른쪽 아래 ⋯(또는 공유) → "Safari로 열기"';
+    my = 'Safari ဖြင့် ဖွင့်ပါ။';
+  } else {
+    step = '오른쪽 아래 ⋮ → "다른 브라우저로 열기"';
+    my = '⋮ → အခြား browser ဖြင့် ဖွင့်ပါ။';
+  }
+  if (kind !== 'kakao' && !IS_IOS) step = '화면의 ⋮ 메뉴 → "다른 브라우저로 열기"';
+  document.getElementById('ia-step').textContent = step;
+  document.getElementById('ia-my').textContent = my;
+  var btn = document.getElementById('ia-go');
+  if (kind === 'kakao') {
+    btn.textContent = IS_IOS ? 'Safari로 열기' : '휴대폰 브라우저로 열기'; btn.style.display = 'block';
+    btn.onclick = function () { go(kakaoExternal()); };
+  } else if (IS_ANDROID) {
+    btn.textContent = '크롬으로 열기'; btn.style.display = 'block';
+    btn.onclick = function () { go(chromeIntent()); };
+  }
+  document.getElementById('inapp').style.display = 'flex';
+}
+function kakaoExternal() { return 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href); }
+function chromeIntent() { return 'intent://' + location.host + location.pathname + location.search + '#Intent;scheme=https;package=com.android.chrome;end'; }
+
+function startApp() {
+  document.getElementById('inapp').style.display = 'none';
+  document.getElementById('splash').style.display = 'flex';
+  if (!APP_URL) { document.getElementById('splash-msg').textContent = '아직 준비 중입니다. 안전관리자에게 문의하세요.'; return; }
   var f = document.createElement('iframe');
   f.id = 'app'; f.src = APP_URL; f.allow = 'fullscreen; autoplay; encrypted-media';
   f.setAttribute('allowfullscreen', '');
@@ -79,6 +155,21 @@ if (!APP_URL) {
     if (s.style.display !== 'none') document.getElementById('splash-msg').textContent = '연결이 느립니다. 잠시만 기다리거나 인터넷 연결을 확인하세요.';
   }, 15000);
 }
+document.getElementById('ia-stay').onclick = function () { try { sessionStorage.setItem('kern_stay', '1'); } catch (e) {} startApp(); };
+
+(function () {
+  var kind = inAppKind(UA), stay = false, tried = false;
+  try { stay = sessionStorage.getItem('kern_stay') === '1'; tried = sessionStorage.getItem('kern_ext') === '1'; } catch (e) {}
+  if (!kind || stay) { startApp(); return; }
+  if (kind === 'kakao' && !tried) {
+    // 카카오톡: 외부 브라우저로 자동 전환. 1.5초 뒤에도 이 화면이 보이면 실패로 보고 안내
+    try { sessionStorage.setItem('kern_ext', '1'); } catch (e) {}
+    go(kakaoExternal());
+    setTimeout(function () { if (document.visibilityState === 'visible') showInAppGuide(kind); }, 1500);
+    return;
+  }
+  showInAppGuide(kind);
+})();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
 </script>
 </body>
