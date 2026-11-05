@@ -3,7 +3,6 @@
   "short_name": "안전교육",
   "description": "산업안전 정기교육 수강·수료 확인",
   "lang": "ko",
-  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

@@ -27,7 +27,7 @@ var APP_URL = '';
 
 /* 웹앱 안쪽 화면이 로그인 표·언어를 이 페이지(홈 화면 아이콘 쪽)에 맡겨 둡니다. */
 var APP_ORIGIN = /^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/;
-var KEYS = ['token', 'lang', 'a2hs'];
+var KEYS = ['token', 'lang', 'a2hs', 'k'];
 function ls(op, k, v) {
   try {
     if (op === 'get') return localStorage.getItem('kern_' + k);
@@ -35,6 +35,19 @@ function ls(op, k, v) {
     return localStorage.removeItem('kern_' + k);
   } catch (e) { return null; }
 }
+
+/* 개인 QR 주소(?k=개인코드): 이 휴대폰에 기억하고, 주소창에도 남겨 둠.
+   주소창에 남아 있어야 "홈 화면에 추가"한 아이콘도 같은 주소로 열림
+   (아이폰은 홈 화면 앱의 저장 공간이 사파리와 따로라서 주소가 유일한 연결 고리) */
+(function () {
+  var m = location.search.match(/[?&]k=([A-Za-z0-9]{16,64})/);
+  if (m) {
+    if (ls('get', 'k') !== m[1]) ls('del', 'token'); // 다른 사람 쪽지(또는 새 쪽지)면 이전 로그인 표는 버림
+    ls('set', 'k', m[1]);
+  } else if (ls('get', 'k')) {
+    try { history.replaceState(null, '', location.pathname + '?k=' + ls('get', 'k')); } catch (e) {}
+  }
+})();
 window.addEventListener('message', function (ev) {
   if (!APP_ORIGIN.test(ev.origin) || !ev.data || !ev.source) return;
   var m = ev.data;
@@ -49,6 +62,7 @@ window.addEventListener('message', function (ev) {
     ls('set', m.key, String(m.value));
   } else if (m.kern === 'del' && KEYS.indexOf(m.key) >= 0) {
     ls('del', m.key);
+    if (m.key === 'k') { try { history.replaceState(null, '', location.pathname); } catch (e) {} } // 무효가 된 QR 주소 지우기
   }
 });
 
