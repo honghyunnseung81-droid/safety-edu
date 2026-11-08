@@ -112,6 +112,26 @@ var IS_IOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' &
 var IS_ANDROID = /Android/i.test(UA);
 var go = window.kernGo || function (url) { location.href = url; }; // (검증할 때 kernGo로 바꿔 끼워 확인)
 var APP_NAME = { kakao: '카카오톡', naver: '네이버 앱', band: '밴드', other: '이 앱' };
+var STANDALONE = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+/* 안드로이드의 진짜 크롬인지. 삼성 인터넷 등 다른 브라우저로 홈 화면에 설치하면
+   구글 플레이 프로텍트가 "안전하지 않은 앱"으로 막는 경고가 떠서, 안드로이드는 크롬으로 보냄 */
+function isAndroidChrome(ua) {
+  return /Android/i.test(ua) && /Chrome\/\d/.test(ua) &&
+    !/SamsungBrowser|EdgA|OPR\/|Whale|YaBrowser|Firefox|DuckDuckGo|; wv\)|KAKAOTALK|NAVER|\bBAND\//i.test(ua);
+}
+
+function showChromeGuide() {
+  document.getElementById('splash').style.display = 'none';
+  document.getElementById('ia-title').textContent = '크롬으로 열어 주세요';
+  document.getElementById('ia-step').textContent = '아래 [크롬으로 열기]를 누르세요';
+  document.getElementById('ia-why').textContent = '이 브라우저로 홈 화면에 추가하면 "안전하지 않은 앱" 경고가 뜰 수 있습니다. 크롬으로 열면 경고 없이 추가됩니다.';
+  document.getElementById('ia-my').textContent = 'Chrome ဖြင့် ဖွင့်ပါ။';
+  var btn = document.getElementById('ia-go');
+  btn.textContent = '크롬으로 열기'; btn.style.display = 'block';
+  btn.onclick = function () { go(chromeIntent()); };
+  document.getElementById('ia-stay').textContent = '이 브라우저로 계속 보기';
+  document.getElementById('inapp').style.display = 'flex';
+}
 
 function showInAppGuide(kind) {
   var name = APP_NAME[kind] || '이 앱';
@@ -129,8 +149,8 @@ function showInAppGuide(kind) {
   document.getElementById('ia-step').textContent = step;
   document.getElementById('ia-my').textContent = my;
   var btn = document.getElementById('ia-go');
-  if (kind === 'kakao') {
-    btn.textContent = IS_IOS ? 'Safari로 열기' : '휴대폰 브라우저로 열기'; btn.style.display = 'block';
+  if (kind === 'kakao' && IS_IOS) {
+    btn.textContent = 'Safari로 열기'; btn.style.display = 'block';
     btn.onclick = function () { go(kakaoExternal()); };
   } else if (IS_ANDROID) {
     btn.textContent = '크롬으로 열기'; btn.style.display = 'block';
@@ -139,7 +159,11 @@ function showInAppGuide(kind) {
   document.getElementById('inapp').style.display = 'flex';
 }
 function kakaoExternal() { return 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href); }
-function chromeIntent() { return 'intent://' + location.host + location.pathname + location.search + '#Intent;scheme=https;package=com.android.chrome;end'; }
+/** 크롬으로 열기 (크롬이 없는 폰이면 지금 브라우저에서 그대로 열림) */
+function chromeIntent() {
+  return 'intent://' + location.host + location.pathname + location.search +
+    '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(location.href) + ';end';
+}
 
 function startApp() {
   document.getElementById('inapp').style.display = 'none';
@@ -160,12 +184,28 @@ document.getElementById('ia-stay').onclick = function () { try { sessionStorage.
 (function () {
   var kind = inAppKind(UA), stay = false, tried = false;
   try { stay = sessionStorage.getItem('kern_stay') === '1'; tried = sessionStorage.getItem('kern_ext') === '1'; } catch (e) {}
-  if (!kind || stay) { startApp(); return; }
+  if (stay || STANDALONE) { startApp(); return; } // 이미 홈 화면 아이콘으로 실행 중이면 그대로
+  if (!kind) {
+    // 앱 안 브라우저는 아니지만 안드로이드에서 크롬이 아닌 브라우저(삼성 인터넷 등) → 크롬 권유
+    if (IS_ANDROID && !isAndroidChrome(UA)) showChromeGuide(); else startApp();
+    return;
+  }
   if (kind === 'kakao' && !tried) {
-    // 카카오톡: 외부 브라우저로 자동 전환. 1.5초 뒤에도 이 화면이 보이면 실패로 보고 안내
+    // 카카오톡: 안드로이드는 크롬 → (안 되면) 카톡의 "외부 브라우저로 열기" → (그래도 안 되면) 안내
+    //          아이폰은 카톡의 "외부 브라우저로 열기"(사파리) → (안 되면) 안내
     try { sessionStorage.setItem('kern_ext', '1'); } catch (e) {}
-    go(kakaoExternal());
-    setTimeout(function () { if (document.visibilityState === 'visible') showInAppGuide(kind); }, 1500);
+    var still = function () { return document.visibilityState === 'visible'; };
+    if (IS_ANDROID) {
+      go(chromeIntent());
+      setTimeout(function () {
+        if (!still()) return;
+        go(kakaoExternal());
+        setTimeout(function () { if (still()) showInAppGuide(kind); }, 1500);
+      }, 1200);
+    } else {
+      go(kakaoExternal());
+      setTimeout(function () { if (still()) showInAppGuide(kind); }, 1500);
+    }
     return;
   }
   showInAppGuide(kind);
