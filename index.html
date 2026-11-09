@@ -53,6 +53,11 @@ function ls(op, k, v) {
   } catch (e) { return null; }
 }
 
+/* 집체교육 서명 QR(?att=회차.30초칸.확인값 — 30초마다 바뀜): 앱에 한 번 넘기고 주소창에서는 지움
+   (홈 화면 아이콘 주소에 남으면 아이콘을 열 때마다 참석 확인을 시도하게 되므로) */
+var ATT = (location.search.match(/[?&]att=([A-Za-z0-9._-]{8,120})/) || [])[1] || '';
+var ATT_IN = ATT; // 바깥 브라우저로 넘길 때 다시 붙이려고 보관
+
 /* 개인 QR 주소(?k=개인코드): 이 휴대폰에 기억하고, 주소창에도 남겨 둠.
    주소창에 남아 있어야 "홈 화면에 추가"한 아이콘도 같은 주소로 열림
    (아이폰은 홈 화면 앱의 저장 공간이 사파리와 따로라서 주소가 유일한 연결 고리) */
@@ -61,8 +66,10 @@ function ls(op, k, v) {
   if (m) {
     if (ls('get', 'k') !== m[1]) ls('del', 'token'); // 다른 사람 쪽지(또는 새 쪽지)면 이전 로그인 표는 버림
     ls('set', 'k', m[1]);
-  } else if (ls('get', 'k')) {
-    try { history.replaceState(null, '', location.pathname + '?k=' + ls('get', 'k')); } catch (e) {}
+  }
+  var k = ls('get', 'k');
+  if ((!m && k) || ATT) { // 주소를 "?k=개인코드"(없으면 빈 주소)로 정리 — att는 빼고 k는 남김
+    try { history.replaceState(null, '', location.pathname + (k ? '?k=' + k : '')); } catch (e) {}
   }
 })();
 /* 홈 화면 설치(안드로이드 크롬): 설치 창은 이 페이지에서만 띄울 수 있어서, 웹앱의 [홈 화면에 추가] 버튼과 메시지로 연결 */
@@ -79,7 +86,8 @@ window.addEventListener('message', function (ev) {
     var data = {};
     KEYS.forEach(function (k) { var v = ls('get', k); if (v) data[k] = v; });
     var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-    ev.source.postMessage({ kern: 'data', data: data, standalone: standalone, installable: !!installEvt, inApp: inAppKind(navigator.userAgent) }, ev.origin);
+    ev.source.postMessage({ kern: 'data', data: data, standalone: standalone, installable: !!installEvt, inApp: inAppKind(navigator.userAgent), att: ATT }, ev.origin);
+    ATT = ''; // 한 번만
     document.getElementById('splash').style.opacity = 0;
     setTimeout(function () { document.getElementById('splash').style.display = 'none'; }, 300);
   } else if (m.kern === 'set' && KEYS.indexOf(m.key) >= 0) {
@@ -158,11 +166,14 @@ function showInAppGuide(kind) {
   }
   document.getElementById('inapp').style.display = 'flex';
 }
-function kakaoExternal() { return 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href); }
+/** 바깥 브라우저로 넘길 주소: 지금 주소 + (참석 QR로 들어왔으면) att도 다시 붙임 */
+function outsideUrl() { return location.href + (ATT_IN ? (location.search ? '&' : '?') + 'att=' + ATT_IN : ''); }
+function kakaoExternal() { return 'kakaotalk://web/openExternal?url=' + encodeURIComponent(outsideUrl()); }
 /** 크롬으로 열기 (크롬이 없는 폰이면 지금 브라우저에서 그대로 열림) */
 function chromeIntent() {
-  return 'intent://' + location.host + location.pathname + location.search +
-    '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(location.href) + ';end';
+  var u = outsideUrl();
+  return 'intent://' + u.replace(/^https?:\/\//, '') +
+    '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(u) + ';end';
 }
 
 function startApp() {
